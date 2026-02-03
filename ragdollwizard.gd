@@ -250,12 +250,19 @@ func _create_issue_item(issue: Dictionary):
 	var item = VBoxContainer.new()
 	item.add_theme_constant_override("separation", 2)
 	
+	# Check if this bone was already fixed
+	var was_fixed = fixed_issues.has(issue.bone.bone_name)
+	
 	var header_box = HBoxContainer.new()
 	header_box.add_theme_constant_override("separation", 5)
 	
 	var bone_label = Label.new()
-	bone_label.text = "• " + issue.bone.bone_name
-	bone_label.add_theme_color_override("font_color", Color(0.8, 0.8, 1.0))
+	if was_fixed:
+		bone_label.text = "✓ " + issue.bone.bone_name
+		bone_label.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))  # Green for fixed
+	else:
+		bone_label.text = "• " + issue.bone.bone_name
+		bone_label.add_theme_color_override("font_color", Color(0.8, 0.8, 1.0))
 	header_box.add_child(bone_label)
 	
 	var select_btn = Button.new()
@@ -264,14 +271,11 @@ func _create_issue_item(issue: Dictionary):
 	select_btn.pressed.connect(func(): _select_bone(issue.bone))
 	header_box.add_child(select_btn)
 	
-	# Check if this bone was already fixed (show restore button)
-	var was_fixed = fixed_issues.has(issue.bone.bone_name)
-	
 	var fix_btn = Button.new()
 	if was_fixed:
 		fix_btn.text = "Restore"
-		fix_btn.modulate = Color(0.8, 1.0, 0.8)  # Green tint
-		fix_btn.pressed.connect(func(): _restore_issue(issue.bone.bone_name))
+		fix_btn.modulate = Color(1.0, 0.8, 0.5)  # Orange tint for restore
+		fix_btn.pressed.connect(func(): _restore_issue(issue))
 	else:
 		fix_btn.text = "Quick Fix"
 		fix_btn.pressed.connect(func(): _quick_fix_issue(issue))
@@ -281,11 +285,14 @@ func _create_issue_item(issue: Dictionary):
 	item.add_child(header_box)
 	
 	var detail = Label.new()
-	if issue.type == "collision_small":
+	if was_fixed:
+		detail.text = "    ✓ Fixed"
+		detail.add_theme_color_override("font_color", Color(0.4, 1.0, 0.4))
+	elif issue.type == "collision_small":
 		detail.text = "    Current: %.4fm  →  Standard: %.4fm" % [issue.current_value, issue.recommended]
 	elif issue.type == "joint_wrong":
 		detail.text = "    Current: %s  →  Standard: %s" % [issue.current_type, issue.recommended_type]
-	detail.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7))
+	detail.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7) if not was_fixed else Color(0.4, 1.0, 0.4))
 	detail.add_theme_font_size_override("font_size", 11)
 	item.add_child(detail)
 	
@@ -363,7 +370,7 @@ func _quick_fix_issue(issue: Dictionary):
 			"type": "joint_wrong",
 			"bone": issue.bone,
 			"joint_type": issue.bone.joint_type,
-			"bone_type": issue.bone_type
+			"bone_type": issue.get("bone_type", "")
 		}
 		if issue.recommended_type == "HINGE":
 			issue.bone.joint_type = PhysicalBone3D.JOINT_TYPE_HINGE
@@ -379,21 +386,20 @@ func _quick_fix_issue(issue: Dictionary):
 	# Store backup for restore
 	fixed_issues[issue.bone.bone_name] = backup
 	
-	# Remove from current issues list
-	current_issues.erase(issue)
-	
-	# Rebuild display without re-scanning
+	# Rebuild display to show "✓" and "Restore" button
 	for child in issue_list.get_children():
 		child.queue_free()
 	_display_issues()
 	
 	# Update status
-	if current_issues.size() == 0:
-		status_label.text = "✓ All issues resolved!"
+	var unfixed_count = current_issues.size() - fixed_issues.size()
+	if unfixed_count == 0:
+		status_label.text = "✓ All issues fixed!"
 	else:
-		status_label.text = "✓ Fixed - %d issues remaining" % current_issues.size()
+		status_label.text = "✓ Fixed - %d unfixed remaining" % unfixed_count
 
-func _restore_issue(bone_name: String):
+func _restore_issue(issue: Dictionary):
+	var bone_name = issue.bone.bone_name
 	if not fixed_issues.has(bone_name):
 		return
 	
@@ -411,8 +417,14 @@ func _restore_issue(bone_name: String):
 	# Remove from fixed list
 	fixed_issues.erase(bone_name)
 	
-	# Re-scan to show it as an issue again
-	_on_scan_pressed()
+	# Rebuild display to show "Quick Fix" button again
+	for child in issue_list.get_children():
+		child.queue_free()
+	_display_issues()
+	
+	# Update status
+	var unfixed_count = current_issues.size() - fixed_issues.size()
+	status_label.text = "↶ Restored - %d unfixed remaining" % unfixed_count
 
 func _on_auto_resolve_pressed():
 	if current_issues.size() == 0:
